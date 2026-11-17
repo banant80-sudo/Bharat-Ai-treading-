@@ -2,6 +2,8 @@ name: Build Android APK & Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -26,6 +28,12 @@ jobs:
 
       - name: Build Debug APK
         run: gradle assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bharat-AI-Trading-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
