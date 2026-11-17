@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">Bharat AI Trading</string>
+    <string name="terminal_subtitle">Angel One SmartAPI Terminal</string>
+    <string name="paper_mode_label">PAPER DEMO</string>
+    <string name="live_mode_label">LIVE API</string>
+    <string name="connected_status">Connected</string>
+    <string name="disconnected_status">Disconnected</string>
+    <string name="connecting_status">Authenticating…</string>
+    <string name="available_cash">Available Cash</string>
+    <string name="used_margin">Used Margin</string>
+    <string name="total_day_pnl">Total Day P&amp;L</string>
+    <string name="auto_trading_title">Auto-Trading Engine</string>
+    <string name="auto_trading_warning" formatted="false">Algo Execution Armed: Orders auto-trigger on Strong Buy/Sell signals and square off at Target Profit % or Stop-Loss %.</string>
+    <string name="nav_scanner">Scanner</string>
+    <string name="nav_positions">Positions</string>
+    <string name="nav_risk">Risk Rules</string>
+    <string name="nav_logs">Logs</string>
+    <string name="broker_modal_title">Angel One SmartAPI</string>
+    <string name="broker_connect">Connect Session</string>
+    <string name="broker_disconnect">Disconnect</string>
+    <string name="instant_square_off">Instant Square-Off</string>
+    <string name="reset_paper_funds">Reset Virtual ₹5,00,000</string>
+</resources>

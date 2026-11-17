@@ -1,0 +1,6 @@
+{
+  "name": "Bharat AI Trading",
+  "description": "Algorithmic trading terminal for NSE, BSE, and MCX with Angel One SmartAPI integration, automated RSI signals, risk controls, and paper trading.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
