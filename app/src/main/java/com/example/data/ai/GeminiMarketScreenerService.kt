@@ -235,11 +235,7 @@ class GeminiMarketScreenerService {
         ): List<MarketInstrument> {
             if (instruments.size <= maxCount) return instruments
             val affordable = instruments.filter { inst ->
-                if (inst.exchange == Exchange.CRYPTO) {
-                    allocationInr >= 50.0
-                } else {
-                    allocationInr >= inst.ltp
-                }
+                allocationInr >= inst.ltp
             }
             val pool = affordable.ifEmpty { instruments }
             return pool.sortedWith(

@@ -60,7 +60,9 @@ data class TradingUiState(
     val sellBasketHighWater: BasketHighWaterState = BasketHighWaterState(),
     val isCircuitBreakerTriggered: Boolean = false,
     val screenerUiState: GeminiScreenerUiState = GeminiScreenerUiState.Idle,
-    val performanceDiagnostic: GeminiPerformanceDiagnostic = GeminiPerformanceDiagnostic()
+    val performanceDiagnostic: GeminiPerformanceDiagnostic = GeminiPerformanceDiagnostic(),
+    val lastRiskSavedAt: String? = null,
+    val hasSavedBrokerLink: Boolean = false
 )
 
 class TradingViewModel(application: Application) : AndroidViewModel(application) {
@@ -75,9 +77,21 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
     private val searchQuery = MutableStateFlow("")
     private val isBrokerSheetOpen = MutableStateFlow(false)
     private val credentials = MutableStateFlow(BrokerCredentials())
+    private val lastRiskSavedAt = MutableStateFlow<String?>(null)
+    private var userEditedCredentials = false
 
     private val _events = MutableSharedFlow<String>()
     val events: SharedFlow<String> = _events.asSharedFlow()
+
+    init {
+        viewModelScope.launch {
+            repository.savedCredentials.collect { saved ->
+                if (!userEditedCredentials && saved.isCompleteForLive) {
+                    credentials.value = saved
+                }
+            }
+        }
+    }
 
     private data class UiNavState(
         val tab: TerminalTab,
@@ -85,7 +99,8 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
         val signalFilter: SignalFilter,
         val query: String,
         val sheetOpen: Boolean,
-        val creds: BrokerCredentials
+        val creds: BrokerCredentials,
+        val lastSavedAt: String? = null
     )
 
     private val navFlow = combine(
@@ -98,6 +113,8 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
         UiNavState(tab, exchange, sigFilter, query, sheetOpen, credentials.value)
     }.combine(credentials) { nav, creds ->
         nav.copy(creds = creds)
+    }.combine(lastRiskSavedAt) { nav, savedAt ->
+        nav.copy(lastSavedAt = savedAt)
     }
 
     private data class RepoState(
@@ -190,7 +207,9 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
             sellBasketHighWater = repo.sellHighWater,
             isCircuitBreakerTriggered = circuitTriggered,
             screenerUiState = screenerState,
-            performanceDiagnostic = perfDiag
+            performanceDiagnostic = perfDiag,
+            lastRiskSavedAt = nav.lastSavedAt,
+            hasSavedBrokerLink = nav.creds.isCompleteForLive || repository.savedCredentials.value.isCompleteForLive
         )
     }.stateIn(
         scope = viewModelScope,
@@ -219,6 +238,7 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun updateCredentials(updated: BrokerCredentials) {
+        userEditedCredentials = true
         credentials.value = updated
     }
 
@@ -289,6 +309,58 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
     fun updateRiskConfig(config: RiskConfig) {
         viewModelScope.launch {
             repository.updateRiskConfig(config)
+            lastRiskSavedAt.value = com.example.util.Formatters.formatTime()
+        }
+    }
+
+    fun saveRiskConfigWithFeedback(config: RiskConfig) {
+        viewModelScope.launch {
+            repository.updateRiskConfig(config)
+            val ts = com.example.util.Formatters.formatTime()
+            lastRiskSavedAt.value = ts
+            _events.emit("✓ Risk rules saved & synced ($ts)")
+        }
+    }
+
+    fun activateMorningEveningSchedule(enableMorningEvening: Boolean) {
+        viewModelScope.launch {
+            val current = uiState.value.riskConfig
+            val updated = if (enableMorningEvening) {
+                current.copy(
+                    enforceMarketHours = true,
+                    autoStartAtMarketOpen = true,
+                    skipOpeningVolatilityEnabled = true,
+                    mcxExtendedHoursEnabled = false
+                )
+            } else {
+                current.copy(
+                    enforceMarketHours = false
+                )
+            }
+            repository.updateRiskConfig(updated)
+            val ts = com.example.util.Formatters.formatTime()
+            lastRiskSavedAt.value = ts
+            val msg = if (enableMorningEvening) {
+                "✓ Morning–Evening Auto Schedule ON (Starts 09:15/09:30 AM IST • Stops 03:15 PM IST)"
+            } else {
+                "24/7 Demo Window Active (Trades anytime for testing)"
+            }
+            _events.emit(msg)
+        }
+    }
+
+    fun withdrawNetProfitOnly() {
+        viewModelScope.launch {
+            repository.withdrawNetProfitOnly().fold(
+                onSuccess = { withdrawn ->
+                    _events.emit(
+                        "✓ Profit withdrawn: ${com.example.util.Formatters.formatInr(withdrawn)} (₹5,00,000 capital intact)"
+                    )
+                },
+                onFailure = { err ->
+                    _events.emit(err.message ?: "No net profit available to withdraw yet")
+                }
+            )
         }
     }
 
@@ -304,7 +376,14 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
             val result = repository.connectBroker(credentials.value)
             result.fold(
                 onSuccess = {
-                    _events.emit("Broker session connected")
+                    val isPaper = uiState.value.riskConfig.isPaperMode
+                    _events.emit(
+                        if (isPaper) {
+                            "Paper sandbox connected"
+                        } else {
+                            "✓ Angel One Linked One-Time & Fund Synced (${com.example.util.Formatters.formatInr(repository.accountSummary.value.availableCash)})"
+                        }
+                    )
                     isBrokerSheetOpen.value = false
                 },
                 onFailure = {
@@ -314,10 +393,32 @@ class TradingViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun syncBrokerFunds() {
+        viewModelScope.launch {
+            repository.syncBrokerFunds().fold(
+                onSuccess = { cash ->
+                    _events.emit("✓ Angel One Available Fund synced: ${com.example.util.Formatters.formatInr(cash)}")
+                },
+                onFailure = { err ->
+                    _events.emit(err.message ?: "Failed to sync Angel One funds")
+                }
+            )
+        }
+    }
+
+    fun clearSavedBrokerLink() {
+        viewModelScope.launch {
+            repository.clearSavedBrokerCredentials()
+            userEditedCredentials = false
+            credentials.value = BrokerCredentials()
+            _events.emit("Saved Angel One credentials cleared")
+        }
+    }
+
     fun disconnectBroker() {
         viewModelScope.launch {
             repository.disconnectBroker()
-            _events.emit("Broker session disconnected")
+            _events.emit("Broker session disconnected (1-time credentials kept)")
         }
     }
 

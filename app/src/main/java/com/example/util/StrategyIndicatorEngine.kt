@@ -23,6 +23,19 @@ data class StrategyEvaluation(
     val statusReason: String
 )
 
+data class CandleOhlcWindow(
+    val minuteBucket: Long,
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val close: Double,
+    val prevOpen: Double,
+    val prevHigh: Double,
+    val prevLow: Double,
+    val prevClose: Double,
+    val secondsIntoCandle: Int
+)
+
 data class OneMinCandleAnalysis(
     val patternName: String,
     val isBullish: Boolean,
@@ -136,15 +149,16 @@ object StrategyIndicatorEngine {
         vwap: Double,
         ema9: Double,
         rsi14: Double,
-        priceHistory: List<Double>
+        priceHistory: List<Double>,
+        candleOhlc: CandleOhlcWindow? = null
     ): OneMinCandleAnalysis {
         val safeVwap = if (vwap > 0.0) vwap else ltp
         val safeEma = if (ema9 > 0.0) ema9 else ltp
-        val close = ltp
+        val close = candleOhlc?.close ?: ltp
         val slice = priceHistory.takeLast(minOf(4, priceHistory.size))
-        val open = if (slice.isNotEmpty()) slice.first() else close
-        val high = slice.maxOrNull() ?: close
-        val low = slice.minOrNull() ?: close
+        val open = candleOhlc?.open ?: if (slice.isNotEmpty()) slice.first() else close
+        val high = candleOhlc?.high ?: slice.maxOrNull() ?: close
+        val low = candleOhlc?.low ?: slice.minOrNull() ?: close
 
         val body = abs(close - open)
         val upperWick = high - maxOf(close, open)
@@ -152,8 +166,12 @@ object StrategyIndicatorEngine {
         val isGreen = close >= open
         val isRed = close < open
 
-        val prevClose = if (priceHistory.size >= 5) priceHistory[priceHistory.size - 5] else open
-        val prevOpen = if (priceHistory.size >= 8) priceHistory[priceHistory.size - 8] else prevClose
+        val prevClose = candleOhlc?.prevClose
+            ?: if (priceHistory.size >= 5) priceHistory[priceHistory.size - 5] else open
+        val prevOpen = candleOhlc?.prevOpen
+            ?: if (priceHistory.size >= 8) priceHistory[priceHistory.size - 8] else prevClose
+        val prevHigh = candleOhlc?.prevHigh ?: maxOf(prevOpen, prevClose)
+        val prevLow = candleOhlc?.prevLow ?: minOf(prevOpen, prevClose)
         val prevIsRed = prevClose <= prevOpen
         val prevIsGreen = prevClose > prevOpen
 
@@ -164,7 +182,7 @@ object StrategyIndicatorEngine {
 
         val isBullishEngulfing = isGreen && prevIsRed && close >= prevOpen && open <= prevClose && isAboveEmaAndVwap && isRsiBullishZone
         val isBullishHammer = isGreen && lowerWick >= 1.2 * maxOf(body, 0.04) && upperWick <= 0.6 * maxOf(body, 0.04) && isAboveEmaAndVwap && isRsiBullishZone
-        val isBullishBreakout = isGreen && (close >= high * 0.9995 || close > prevClose * 1.0005) && isAboveEmaAndVwap && isRsiBullishZone
+        val isBullishBreakout = isGreen && (close >= maxOf(high, prevHigh) * 0.9995 || close > prevClose * 1.0005) && isAboveEmaAndVwap && isRsiBullishZone
 
         // Bearish 1-Minute Candlestick Confirmation:
         // Must close below 9 EMA & VWAP with RSI in 32..48 momentum zone
@@ -172,7 +190,7 @@ object StrategyIndicatorEngine {
         val isRsiBearishZone = rsi14 in 32.0..48.0
 
         val isBearishEngulfing = isRed && prevIsGreen && close <= prevOpen && open >= prevClose && isBelowEmaAndVwap && isRsiBearishZone
-        val isBearishBreakdown = isRed && (close <= low * 1.0005 || close < prevClose * 0.9995) && isBelowEmaAndVwap && isRsiBearishZone
+        val isBearishBreakdown = isRed && (close <= minOf(low, prevLow) * 1.0005 || close < prevClose * 0.9995) && isBelowEmaAndVwap && isRsiBearishZone
         val isShootingStar = isRed && upperWick >= 1.2 * maxOf(body, 0.04) && lowerWick <= 0.6 * maxOf(body, 0.04) && isBelowEmaAndVwap && isRsiBearishZone
 
         val (pattern, isBullish, isBearish, isConfirmed) = when {
@@ -187,7 +205,8 @@ object StrategyIndicatorEngine {
             else -> Tuple4("1m Consolidating", false, false, false)
         }
 
-        val pill = if (isConfirmed) "$pattern • 99% PASS" else "$pattern • WAIT"
+        val barClock = candleOhlc?.let { " (${it.secondsIntoCandle}s/60s)" } ?: ""
+        val pill = if (isConfirmed) "$pattern$barClock • 99% PASS" else "$pattern$barClock • WAIT"
         return OneMinCandleAnalysis(
             patternName = pattern,
             isBullish = isBullish,
@@ -337,7 +356,9 @@ object StrategyIndicatorEngine {
         minConvictionThreshold: Int = MIN_AI_CONVICTION_SCORE,
         cloudScore: Int? = null,
         cloudVerdict: String? = null,
-        cloudReason: String? = null
+        cloudReason: String? = null,
+        candleOhlc: CandleOhlcWindow? = null,
+        minEfficiencyOverride: Double = MIN_DIRECTIONAL_EFFICIENCY
     ): DeepScreenerResult {
         val strategyEval = evaluateStrategy(ltp = ltp, vwap = vwap, priceHistory = priceHistory)
         val emaSlopeConfirmed = if (priceHistory.size >= 4) {
@@ -350,7 +371,8 @@ object StrategyIndicatorEngine {
         val trendMomentumPass = strategyEval.strategyPassed && emaSlopeConfirmed
 
         val efficiency = computeDirectionalEfficiency(priceHistory)
-        val volumeLiquidityPass = volumeSurgeRatio >= MIN_VOLUME_SURGE_RATIO && efficiency >= MIN_DIRECTIONAL_EFFICIENCY
+        val requiredEfficiency = maxOf(MIN_DIRECTIONAL_EFFICIENCY, minEfficiencyOverride)
+        val volumeLiquidityPass = volumeSurgeRatio >= MIN_VOLUME_SURGE_RATIO && efficiency >= requiredEfficiency
 
         val safeAlloc = allocationInr.coerceAtLeast(50.0)
         val charges = AngelOneChargeCalculator.estimateRoundTripCharges(safeAlloc, exchange).totalCharges
@@ -372,8 +394,8 @@ object StrategyIndicatorEngine {
             16
         }
         val volumePoints = when {
-            volumeSurgeRatio >= 1.25 && efficiency >= 0.30 -> 30
-            volumeSurgeRatio >= 1.15 && efficiency >= 0.26 -> 29
+            volumeSurgeRatio >= 1.25 && efficiency >= maxOf(0.30, requiredEfficiency) -> 30
+            volumeSurgeRatio >= 1.15 && efficiency >= maxOf(0.26, requiredEfficiency) -> 29
             volumeLiquidityPass -> 26
             volumeSurgeRatio >= 1.0 -> 16
             else -> 9
@@ -387,21 +409,37 @@ object StrategyIndicatorEngine {
         val quantScore = (trendPoints + volumePoints + feePoints).coerceIn(30, 99)
         val allQuantPassed = trendMomentumPass && volumeLiquidityPass && feeClearancePass
 
-        val finalScore = when {
+        val candleAnalysis = evaluateOneMinCandle(
+            ltp = ltp,
+            vwap = vwap,
+            ema9 = strategyEval.ema9,
+            rsi14 = strategyEval.rsi14,
+            priceHistory = priceHistory,
+            candleOhlc = candleOhlc
+        )
+        val candleDirectionAligned = when (strategyEval.signal) {
+            AiTrendSignal.STRONG_BUY -> candleAnalysis.isBullish && candleAnalysis.isConfirmed
+            AiTrendSignal.STRONG_SELL -> candleAnalysis.isBearish && candleAnalysis.isConfirmed
+            else -> false
+        }
+
+        val rawScore = when {
             !allQuantPassed -> minOf(quantScore, 84)
+            candleOhlc != null && !candleDirectionAligned -> minOf(quantScore, 94)
             cloudScore != null && cloudVerdict == "SKIP" -> minOf(quantScore, cloudScore, 85)
             cloudScore != null -> ((quantScore * 0.65) + (cloudScore * 0.35)).toInt().coerceIn(88, 99)
             else -> quantScore
         }
 
         val finalPass = allQuantPassed &&
-            finalScore >= minConvictionThreshold &&
+            rawScore >= minConvictionThreshold &&
+            (candleOhlc == null || candleDirectionAligned) &&
             (cloudVerdict == null || cloudVerdict == "PASS")
 
         val verdict = if (finalPass) "PASS" else "SKIP"
         val reason = when {
             finalPass -> cloudReason?.takeIf { it.isNotBlank() }
-                ?: "AI $finalScore% Confirmed: Vol ${String.format(Locale.US, "%.1fx", volumeSurgeRatio)} • Range ${String.format(Locale.US, "%.2f", rangePct)}% clears fees"
+                ?: "AI $rawScore% Confirmed: Vol ${String.format(Locale.US, "%.1fx", volumeSurgeRatio)} • Range ${String.format(Locale.US, "%.2f", rangePct)}% clears fees"
             !trendMomentumPass -> "AI Screener Blocked: Weak Momentum / High Chop"
             !volumeLiquidityPass -> if (volumeSurgeRatio < MIN_VOLUME_SURGE_RATIO) {
                 "AI Screener Blocked: Low Volume (${String.format(Locale.US, "%.2fx", volumeSurgeRatio)})"
@@ -409,20 +447,14 @@ object StrategyIndicatorEngine {
                 "AI Screener Blocked: Weak Momentum / High Chop"
             }
             !feeClearancePass -> "AI Screener Blocked: Fee-Clearance Low (${String.format(Locale.US, "%.2f", rangePct)}%)"
+            candleOhlc != null && !candleDirectionAligned -> "AI Screener Blocked: 1m Candle Not Confirmed (${candleAnalysis.patternName})"
             cloudVerdict == "SKIP" && !cloudReason.isNullOrBlank() -> cloudReason
-            else -> "AI Screener Blocked: Conviction $finalScore% (<$minConvictionThreshold%)"
+            else -> "AI Screener Blocked: Conviction $rawScore% (<$minConvictionThreshold%)"
         }
-        val candleAnalysis = evaluateOneMinCandle(
-            ltp = ltp,
-            vwap = vwap,
-            ema9 = strategyEval.ema9,
-            rsi14 = strategyEval.rsi14,
-            priceHistory = priceHistory
-        )
 
         return DeepScreenerResult(
             strategyEval = strategyEval,
-            screenerScore = finalScore,
+            screenerScore = rawScore,
             trendMomentumPass = trendMomentumPass,
             volumeLiquidityPass = volumeLiquidityPass,
             feeClearancePass = feeClearancePass,

@@ -12,6 +12,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.example.domain.model.ActivePosition
 import com.example.domain.model.BasketExitScope
 import com.example.domain.model.BasketHighWaterState
+import com.example.domain.model.BrokerCredentials
 import com.example.domain.model.RiskConfig
 import com.example.domain.model.StopLossMode
 import com.example.domain.model.TargetProfitMode
@@ -55,6 +56,19 @@ class RiskPreferencesStorage(private val context: Context) {
         val AUTO_START_AT_OPEN = booleanPreferencesKey("auto_start_at_open")
         val DAILY_MAX_LOSS_INR = doublePreferencesKey("daily_max_loss_inr")
         val IS_PAPER_MODE = booleanPreferencesKey("is_paper_mode")
+        val BROKER_API_KEY = stringPreferencesKey("broker_api_key")
+        val BROKER_CLIENT_ID = stringPreferencesKey("broker_client_id")
+        val BROKER_MPIN = stringPreferencesKey("broker_mpin")
+        val BROKER_TOTP_SECRET = stringPreferencesKey("broker_totp_secret")
+    }
+
+    val savedCredentialsFlow: Flow<BrokerCredentials> = context.riskDataStore.data.map { prefs ->
+        BrokerCredentials(
+            apiKey = prefs[Keys.BROKER_API_KEY].orEmpty(),
+            clientId = prefs[Keys.BROKER_CLIENT_ID].orEmpty(),
+            mpin = prefs[Keys.BROKER_MPIN].orEmpty(),
+            totpSecret = prefs[Keys.BROKER_TOTP_SECRET].orEmpty()
+        )
     }
 
     val riskConfigFlow: Flow<RiskConfig> = context.riskDataStore.data.map { prefs ->
@@ -182,6 +196,24 @@ class RiskPreferencesStorage(private val context: Context) {
             prefs[Keys.AUTO_START_AT_OPEN] = config.autoStartAtMarketOpen
             prefs[Keys.DAILY_MAX_LOSS_INR] = config.dailyMaxLossLimitInr.coerceIn(300.0, 50000.0)
             prefs[Keys.IS_PAPER_MODE] = config.isPaperMode
+        }
+    }
+
+    suspend fun saveBrokerCredentials(credentials: BrokerCredentials) {
+        context.riskDataStore.edit { prefs ->
+            prefs[Keys.BROKER_API_KEY] = credentials.apiKey.trim()
+            prefs[Keys.BROKER_CLIENT_ID] = credentials.clientId.trim().uppercase()
+            prefs[Keys.BROKER_MPIN] = credentials.mpin.trim()
+            prefs[Keys.BROKER_TOTP_SECRET] = credentials.totpSecret.trim()
+        }
+    }
+
+    suspend fun clearBrokerCredentials() {
+        context.riskDataStore.edit { prefs ->
+            prefs.remove(Keys.BROKER_API_KEY)
+            prefs.remove(Keys.BROKER_CLIENT_ID)
+            prefs.remove(Keys.BROKER_MPIN)
+            prefs.remove(Keys.BROKER_TOTP_SECRET)
         }
     }
 }

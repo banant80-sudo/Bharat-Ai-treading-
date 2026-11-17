@@ -18,8 +18,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.LayersClear
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -76,6 +78,7 @@ fun PositionsScreen(
     onBookAllCombinedProfitNow: () -> Unit = {},
     onSquareOffPosition: (String) -> Unit,
     onSquareOffAll: () -> Unit,
+    onWithdrawProfit: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -95,6 +98,13 @@ fun PositionsScreen(
                 sellBasketHighWater = sellBasketHighWater,
                 onBookBasketProfitNow = onBookBasketProfitNow,
                 onBookAllCombinedProfitNow = onBookAllCombinedProfitNow
+            )
+        }
+
+        item(key = "profit_withdraw_wallet_card") {
+            ProfitOnlyWalletCard(
+                accountSummary = accountSummary,
+                onWithdrawProfit = onWithdrawProfit
             )
         }
 
@@ -170,7 +180,7 @@ fun PositionsScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = "Arm the Synchronized Pair AI Auto-Scalper in Scanner or tap BUY / SELL on any affordable NSE, BSE, MCX, or Crypto ticker to track live zero-wait auto-books.",
+                            text = "Arm the Synchronized Pair AI Auto-Scalper in Scanner or tap BUY / SELL on any affordable NSE, BSE, or MCX ticker to track live zero-wait auto-books.",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
@@ -399,6 +409,128 @@ private fun ActivePositionCard(
                 Text(
                     text = "Instant Square-Off",
                     style = MaterialTheme.typography.labelLarge
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfitOnlyWalletCard(
+    accountSummary: AccountSummary,
+    onWithdrawProfit: () -> Unit
+) {
+    val withdrawable = accountSummary.withdrawableProfitInr
+    val canWithdraw = withdrawable > 0.0
+    Surface(
+        color = TerminalSurface,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(
+            1.dp,
+            if (canWithdraw) EmeraldProfit.copy(alpha = 0.6f) else TerminalBorder
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("profit_only_wallet_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountBalanceWallet,
+                        contentDescription = "Profit-Only Withdrawal Wallet",
+                        tint = EmeraldBright,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "Profit-Only Bank Withdrawal",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Base ₹5,00,000 capital stays locked • Only Net Profit withdraws",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+                if (accountSummary.dailyProfitFloorInr != null) {
+                    Surface(color = EmeraldContainer, shape = RoundedCornerShape(6.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shield,
+                                contentDescription = "Daily Profit Shield",
+                                tint = EmeraldBright,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "Floor +₹${accountSummary.dailyProfitFloorInr.toInt()}",
+                                style = MonoTabularStyle.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                color = EmeraldBright
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(TerminalSurfaceElevated)
+                    .padding(10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                PositionStatCell("BASE PRINCIPAL", "₹5,00,000")
+                PositionStatCell("WITHDRAWABLE PROFIT", Formatters.formatInr(withdrawable))
+                PositionStatCell("TOTAL WITHDRAWN", Formatters.formatInr(accountSummary.withdrawnProfitInr))
+            }
+
+            Button(
+                onClick = onWithdrawProfit,
+                enabled = canWithdraw,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = EmeraldProfit,
+                    contentColor = TerminalSurface,
+                    disabledContainerColor = TerminalSurfaceHighlight,
+                    disabledContentColor = TextMuted
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("withdraw_profit_only_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AccountBalanceWallet,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(
+                    text = if (canWithdraw) {
+                        "Withdraw Net Profit Only (${Formatters.formatInr(withdrawable)})"
+                    } else {
+                        "Earn Net Profit > ₹0.00 to Withdraw"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }

@@ -68,22 +68,21 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun smallAmountSplit_skipsOverpricedStocksAndAllows50InrPennyAndCrypto() {
+    fun smallAmountSplit_skipsOverpricedStocksAndAllowsPennyStocks() {
         val microBudget = 50.0
         // Penny NSE stock IDEA @ ₹11.40 -> 4 shares fit within ₹50
         assertEquals(4, floor(microBudget / 11.40).toInt())
+        // YESBANK @ ₹22.80 -> 2 shares fit within ₹50
+        assertEquals(2, floor(microBudget / 22.80).toInt())
         // Blue-chip TCS @ ₹4,118.75 -> skipped at ₹50
         assertEquals(0, floor(microBudget / 4118.75).toInt())
-        // Fractional Crypto BTC @ ₹78,45,000 -> fractional unit > 0 at ₹50
-        val btcQty = Math.round((microBudget / 7845000.0) * 1_000_000.0) / 1_000_000.0
-        assertTrue(btcQty > 0.0)
 
-        val cryptoCharges = AngelOneChargeCalculator.estimateRoundTripCharges(50.0, Exchange.CRYPTO)
-        assertTrue(cryptoCharges.totalCharges > 0.0 && cryptoCharges.totalCharges < 1.0)
+        val intradayCharges = AngelOneChargeCalculator.estimateRoundTripCharges(50.0, Exchange.NSE)
+        assertTrue(intradayCharges.totalCharges > 0.0 && intradayCharges.totalCharges < 1.0)
     }
 
     @Test
-    fun istMarketScheduler_validatesNseBseMcxAnd24x7Crypto() {
+    fun istMarketScheduler_validatesNseBseAndMcxHours() {
         val ist = TimeZone.getTimeZone("Asia/Kolkata")
         val cal = Calendar.getInstance(ist).apply {
             set(Calendar.YEAR, 2026)
@@ -97,22 +96,22 @@ class ExampleUnitTest {
         val morning = IstMarketScheduler.evaluate(config, cal.timeInMillis)
         assertTrue(morning.isNseBseOpen)
         assertTrue(morning.isMcxOpen)
-        assertTrue(morning.isCryptoOpen)
+        assertTrue(morning.isAnyMarketOpen)
 
-        // 19:00 IST -> NSE/BSE closed, MCX & Crypto open
+        // 19:00 IST -> NSE/BSE closed, MCX open
         cal.set(Calendar.HOUR_OF_DAY, 19)
         val evening = IstMarketScheduler.evaluate(config, cal.timeInMillis)
         assertFalse(evening.isNseBseOpen)
         assertTrue(evening.isMcxOpen)
-        assertTrue(evening.isCryptoOpen)
+        assertTrue(evening.isAnyMarketOpen)
 
-        // 23:45 IST -> NSE/MCX closed, Crypto remains 24/7 open
+        // 23:45 IST -> NSE/MCX closed
         cal.set(Calendar.HOUR_OF_DAY, 23)
         cal.set(Calendar.MINUTE, 45)
         val lateNight = IstMarketScheduler.evaluate(config, cal.timeInMillis)
         assertFalse(lateNight.isNseBseOpen)
         assertFalse(lateNight.isMcxOpen)
-        assertTrue(lateNight.isCryptoOpen)
+        assertFalse(lateNight.isAnyMarketOpen)
     }
 
     @Test
@@ -185,7 +184,7 @@ class ExampleUnitTest {
         assertFalse(defaultConfig.singleDirectionOnly)
         assertFalse(defaultConfig.allowSellAutoTrade)
 
-        // At default ₹5,000: TATAMOTORS (₹986.30), HDFCBANK (₹1,728.60), RELIANCE (₹2,945.40), TCS (₹4,118.75), fractional CRYPTO qualify
+        // At default ₹5,000: TATAMOTORS (₹986.30), HDFCBANK (₹1,728.60), RELIANCE (₹2,945.40), TCS (₹4,118.75) qualify
         assertEquals(5, floor(5000.0 / 986.30).toInt())
         assertEquals(2, floor(5000.0 / 1728.60).toInt())
         assertEquals(1, floor(5000.0 / 2945.40).toInt())
@@ -811,6 +810,19 @@ class ExampleUnitTest {
             "Delivery: 46.88, Intraday: 13.28, Options: 59.43",
             AngelOneChargeCalculator.formatBenchmarkSummary(5000.0, 5100.0)
         )
+
+        // 4) Small-order SEBI 2.5% cap matching Angel One Calculator screenshots:
+        // Intraday Buy ₹100 -> Sell ₹200: Buy Brok ₹2.50 + Sell Brok ₹5.00 = ₹7.50, DP = ₹0
+        val smallIntra = AngelOneChargeCalculator.calculateEquityIntradayCharges(100.0, 200.0)
+        assertEquals(2.50, smallIntra.buyBrokerage, 0.01)
+        assertEquals(5.00, smallIntra.sellBrokerage, 0.01)
+        assertEquals(0.0, smallIntra.dpCharge, 0.01)
+
+        // Delivery Buy ₹200 -> Sell ₹250: Buy Brok ₹5.00 + Sell Brok ₹5.00 = ₹10.00, DP = ₹20
+        val smallDel = AngelOneChargeCalculator.calculateEquityDeliveryCharges(200.0, 250.0)
+        assertEquals(5.00, smallDel.buyBrokerage, 0.01)
+        assertEquals(5.00, smallDel.sellBrokerage, 0.01)
+        assertEquals(20.00, smallDel.dpCharge, 0.01)
     }
 
     @Test
@@ -971,6 +983,83 @@ class ExampleUnitTest {
         val at15Target = position.copy(currentPrice = 1004.50)
         assertTrue(at15Target.netUnrealizedPnl >= ActivePosition.ZERO_WAIT_SINGLE_TRADE_TARGET_INR)
         assertTrue(at15Target.netUnrealizedPnl >= RiskConfig().singleTradeInstantBookInr)
+    }
+
+    @Test
+    fun formatTime_alwaysUsesIstTimezoneSynchronizedWithMarketScheduler() {
+        val utc = TimeZone.getTimeZone("UTC")
+        val cal = Calendar.getInstance(utc).apply {
+            set(Calendar.YEAR, 2026)
+            set(Calendar.MONTH, Calendar.NOVEMBER)
+            set(Calendar.DAY_OF_MONTH, 16)
+            set(Calendar.HOUR_OF_DAY, 4)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        // 04:00:00 UTC == 09:30:00 IST
+        val formatted = com.example.util.Formatters.formatTime(cal.timeInMillis)
+        val scheduled = IstMarketScheduler.evaluate(RiskConfig(), cal.timeInMillis).istTimeFormatted
+        assertEquals("09:30:00 IST", formatted)
+        assertEquals(scheduled, formatted)
+    }
+
+    @Test
+    fun screenerWithOneMinCandleOhlc_blocksUnconfirmedChoppyCandleEvenIfIndicatorsLookHigh() {
+        val strongHistory = listOf(
+            100.0, 100.4, 99.9, 100.6, 101.0, 100.5, 101.3, 101.7, 101.2, 102.0,
+            102.4, 101.8, 102.6, 103.0, 102.3, 103.1, 103.5, 102.8, 103.6, 104.0,
+            103.3, 104.1, 104.5, 103.8, 104.6, 105.0, 104.5, 105.0
+        )
+        // Red forming candle (open 105.5 > close 105.0) during a STRONG_BUY signal must NOT pass 99% gate!
+        val opposingRedCandle = com.example.util.CandleOhlcWindow(
+            minuteBucket = 100L,
+            open = 105.5,
+            high = 105.6,
+            low = 104.9,
+            close = 105.0,
+            prevOpen = 104.2,
+            prevHigh = 104.9,
+            prevLow = 104.1,
+            prevClose = 104.8,
+            secondsIntoCandle = 35
+        )
+        val blockedResult = StrategyIndicatorEngine.evaluateGeminiDeepScreener(
+            ltp = 105.0,
+            vwap = 103.2,
+            priceHistory = strongHistory,
+            exchange = Exchange.NSE,
+            allocationInr = 10000.0,
+            volumeSurgeRatio = 1.45,
+            candleOhlc = opposingRedCandle
+        )
+        assertEquals("SKIP", blockedResult.verdict)
+
+        // Confirmed green breakout 1m candle passes 99% gate cleanly
+        val greenBreakoutCandle = com.example.util.CandleOhlcWindow(
+            minuteBucket = 100L,
+            open = 104.4,
+            high = 105.0,
+            low = 104.3,
+            close = 105.0,
+            prevOpen = 104.6,
+            prevHigh = 104.7,
+            prevLow = 104.2,
+            prevClose = 104.4,
+            secondsIntoCandle = 42
+        )
+        val confirmedResult = StrategyIndicatorEngine.evaluateGeminiDeepScreener(
+            ltp = 105.0,
+            vwap = 103.2,
+            priceHistory = strongHistory,
+            exchange = Exchange.NSE,
+            allocationInr = 10000.0,
+            volumeSurgeRatio = 1.45,
+            candleOhlc = greenBreakoutCandle
+        )
+        assertEquals("PASS", confirmedResult.verdict)
+        assertTrue(confirmedResult.screenerScore >= 99)
+        assertTrue(confirmedResult.isOneMinCandleConfirmed)
     }
 }
 

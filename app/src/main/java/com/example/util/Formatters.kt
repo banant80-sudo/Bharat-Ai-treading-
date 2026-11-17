@@ -5,15 +5,24 @@ import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.abs
 
 object Formatters {
-    private val inrFormat: NumberFormat = NumberFormat.getNumberInstance(Locale("en", "IN")).apply {
-        minimumFractionDigits = 2
-        maximumFractionDigits = 2
+    private val istZone: TimeZone = TimeZone.getTimeZone("Asia/Kolkata")
+
+    private val inrFormat: ThreadLocal<NumberFormat> = ThreadLocal.withInitial {
+        NumberFormat.getNumberInstance(Locale("en", "IN")).apply {
+            minimumFractionDigits = 2
+            maximumFractionDigits = 2
+        }
     }
 
-    private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
+    private val timeFormat: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
+        SimpleDateFormat("HH:mm:ss 'IST'", Locale.US).apply {
+            timeZone = istZone
+        }
+    }
 
     fun formatInr(amount: Double, showSign: Boolean = false): String {
         val prefix = when {
@@ -21,23 +30,17 @@ object Formatters {
             amount < -0.004 -> "-₹"
             else -> "₹"
         }
-        return "$prefix${inrFormat.format(abs(amount))}"
+        val formatted = inrFormat.get()?.format(abs(amount)) ?: String.format(Locale.US, "%.2f", abs(amount))
+        return "$prefix$formatted"
     }
 
     fun formatPrice(price: Double): String {
-        return "₹${inrFormat.format(price)}"
+        val formatted = inrFormat.get()?.format(price) ?: String.format(Locale.US, "%.2f", price)
+        return "₹$formatted"
     }
 
-    fun formatQuantity(quantity: Double, exchange: Exchange): String {
-        return if (exchange == Exchange.CRYPTO) {
-            if (quantity >= 1.0) {
-                String.format(Locale.US, "%.4f", quantity).trimEnd('0').trimEnd('.')
-            } else {
-                String.format(Locale.US, "%.6f", quantity).trimEnd('0').trimEnd('.')
-            }
-        } else {
-            quantity.toInt().toString()
-        }
+    fun formatQuantity(quantity: Double, exchange: Exchange? = null): String {
+        return quantity.toInt().toString()
     }
 
     fun formatPct(pct: Double, showSign: Boolean = true): String {
@@ -50,6 +53,8 @@ object Formatters {
     }
 
     fun formatTime(epochMs: Long = System.currentTimeMillis()): String {
-        return timeFormat.format(Date(epochMs))
+        return timeFormat.get()?.format(Date(epochMs)) ?: SimpleDateFormat("HH:mm:ss 'IST'", Locale.US).apply {
+            timeZone = istZone
+        }.format(Date(epochMs))
     }
 }

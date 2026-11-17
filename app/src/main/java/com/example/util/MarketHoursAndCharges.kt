@@ -39,17 +39,22 @@ data class MarketWindowStatus(
     val istTimeFormatted: String,
     val isNseBseOpen: Boolean,
     val isMcxOpen: Boolean,
-    val isCryptoOpen: Boolean,
     val isOpeningVolatilityWindow: Boolean,
     val isAnyMarketOpen: Boolean,
     val statusSummary: String
 )
 
 object AngelOneChargeCalculator {
+    private fun computeAngelOneEquityOrderBrokerage(tradeValue: Double): Double {
+        if (tradeValue <= 0.0) return 0.0
+        val tierFee = max(5.0, min(20.0, 0.001 * tradeValue))
+        val sebiMaxCap = tradeValue * 0.025
+        return Math.round(min(tierFee, sebiMaxCap) * 100.0) / 100.0
+    }
+
     /**
-     * 1. Equity Delivery (e.g. Buy 5000, Sell 5100):
-     * brok_buy = max(5, min(20, 0.001 * buy))
-     * brok_sell = max(5, min(20, 0.001 * sell))
+     * 1. Equity Delivery (e.g. Buy 5000, Sell 5100 -> 46.88; Buy 200, Sell 250 -> Brok 10 + DP 20):
+     * brok = min(2.5% * value, max(5, min(20, 0.001 * value)))
      * dp_charge = 20
      * stt = round(0.001 * buy) + round(0.001 * sell)
      * exch = (buy + sell) * 0.000030699
@@ -57,8 +62,8 @@ object AngelOneChargeCalculator {
      * gst = 0.18 * (brok_buy + brok_sell + dp_charge + exch)
      */
     fun calculateEquityDeliveryCharges(buyValue: Double = 5000.0, sellValue: Double = 5100.0): SegmentChargeDetail {
-        val brokBuy = max(5.0, min(20.0, 0.001 * buyValue))
-        val brokSell = max(5.0, min(20.0, 0.001 * sellValue))
+        val brokBuy = computeAngelOneEquityOrderBrokerage(buyValue)
+        val brokSell = computeAngelOneEquityOrderBrokerage(sellValue)
         val dpCharge = 20.0
         val stt = round(0.001 * buyValue) + round(0.001 * sellValue)
         val exch = (buyValue + sellValue) * 0.000030699
@@ -81,17 +86,16 @@ object AngelOneChargeCalculator {
     }
 
     /**
-     * 2. Equity Intraday (e.g. Buy 5000, Sell 5100):
-     * brok_buy = max(5, min(20, 0.001 * buy))
-     * brok_sell = max(5, min(20, 0.001 * sell))
+     * 2. Equity Intraday (e.g. Buy 5000, Sell 5100 -> 13.28; Buy 100, Sell 200 -> Brok 7.50, DP 0):
+     * brok = min(2.5% * value, max(5, min(20, 0.001 * value)))
      * stt = round(0.00025 * sell)
      * exch = (buy + sell) * 0.000030699
      * stamp = round(0.00003 * buy)
      * gst = 0.18 * (brok_buy + brok_sell + exch)
      */
     fun calculateEquityIntradayCharges(buyValue: Double = 5000.0, sellValue: Double = 5100.0): SegmentChargeDetail {
-        val brokBuy = max(5.0, min(20.0, 0.001 * buyValue))
-        val brokSell = max(5.0, min(20.0, 0.001 * sellValue))
+        val brokBuy = computeAngelOneEquityOrderBrokerage(buyValue)
+        val brokSell = computeAngelOneEquityOrderBrokerage(sellValue)
         val stt = round(0.00025 * sellValue)
         val exch = (buyValue + sellValue) * 0.000030699
         val stamp = round(0.00003 * buyValue)
@@ -159,22 +163,10 @@ object AngelOneChargeCalculator {
     /**
      * Estimates two-way (entry + square-off) intraday charges:
      * - NSE/BSE/MCX: Angel One SmartAPI brokerage min(₹20, 0.03%) per leg + STT/CTT + Exchange Txn + 18% GST
-     * - CRYPTO: Typical 0.10% spot/perp maker-taker round-trip fee + 18% GST on fee
      */
     fun estimateRoundTripCharges(investedCapital: Double, exchange: Exchange): ChargesBreakdown {
         if (investedCapital <= 0.0) {
             return ChargesBreakdown(0.0, 0.0, 0.0, 0.0)
-        }
-        if (exchange == Exchange.CRYPTO) {
-            val twoWayFee = investedCapital * 0.0020 // 0.10% per leg
-            val gst = twoWayFee * 0.18
-            val total = Math.round((twoWayFee + gst) * 100.0) / 100.0
-            return ChargesBreakdown(
-                brokerage = Math.round(twoWayFee * 100.0) / 100.0,
-                sttAndTxn = 0.0,
-                gstAndSebi = Math.round(gst * 100.0) / 100.0,
-                totalCharges = total
-            )
         }
 
         val legBrokerage = min(20.0, investedCapital * 0.0003)
@@ -227,26 +219,22 @@ object IstMarketScheduler {
                 minuteOfDay in MCX_OPEN_MINUTE until MCX_CLOSE_MINUTE
         }
 
-        // Crypto markets trade 24/7 globally
-        val cryptoOpen = true
-
         val summary = when {
-            !config.enforceMarketHours -> "24/7 Demo + Crypto Active"
-            !isWeekday -> "NSE/MCX Weekend • Crypto 24/7 Open"
+            !config.enforceMarketHours -> "Demo Mode (24/7 Virtual Engine)"
+            !isWeekday -> "NSE/BSE/MCX Weekend (Closed)"
             config.skipOpeningVolatilityEnabled && isOpeningVolWindow -> "Opening Vol Guard (09:15–09:30 IST)"
-            nseOpen && mcxOpen -> "NSE/BSE, MCX & Crypto 24/7 Open"
-            nseOpen -> "NSE/BSE (09:15–15:15) & Crypto Open"
-            mcxOpen -> "MCX (–23:30 IST) & Crypto Open"
-            else -> "NSE/BSE Closed • Crypto 24/7 Open"
+            nseOpen && mcxOpen -> "NSE/BSE & MCX Open"
+            nseOpen -> "NSE/BSE (09:15–15:15) Open"
+            mcxOpen -> "MCX (09:00–23:30) Open"
+            else -> "NSE/BSE Closed (Opens 09:15 IST)"
         }
 
         return MarketWindowStatus(
             istTimeFormatted = istClockFormat.format(cal.time),
             isNseBseOpen = nseOpen,
             isMcxOpen = mcxOpen,
-            isCryptoOpen = cryptoOpen,
             isOpeningVolatilityWindow = isOpeningVolWindow,
-            isAnyMarketOpen = nseOpen || mcxOpen || cryptoOpen,
+            isAnyMarketOpen = nseOpen || mcxOpen,
             statusSummary = summary
         )
     }
@@ -255,7 +243,6 @@ object IstMarketScheduler {
         return when (exchange) {
             Exchange.NSE, Exchange.BSE -> status.isNseBseOpen
             Exchange.MCX -> status.isMcxOpen
-            Exchange.CRYPTO -> status.isCryptoOpen
         }
     }
 

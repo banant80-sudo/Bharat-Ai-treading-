@@ -124,6 +124,7 @@ fun ScannerScreen(
     onSearchQueryChange: (String) -> Unit,
     onToggleAutoTrading: (Boolean) -> Unit,
     onToggleAllowSellAutoTrade: (Boolean) -> Unit = {},
+    onActivateMorningEveningSchedule: (Boolean) -> Unit = {},
     onManualOrder: (MarketInstrument, TradeSide) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -156,15 +157,13 @@ fun ScannerScreen(
                 riskConfig = riskConfig,
                 marketWindowStatus = marketWindowStatus,
                 eligibleCount = instruments.count {
-                    if (it.exchange == Exchange.CRYPTO) {
-                        budgetPerTrade >= 50.0
-                    } else {
-                        floor(budgetPerTrade / it.ltp) >= 1.0
-                    }
+                    floor(budgetPerTrade / it.ltp) >= 1.0
                 },
                 totalCount = instruments.size,
                 onToggle = onToggleAutoTrading,
-                onToggleAllowSellAutoTrade = onToggleAllowSellAutoTrade
+                onToggleAllowSellAutoTrade = onToggleAllowSellAutoTrade,
+                dailyProfitFloorInr = accountSummary.dailyProfitFloorInr,
+                onActivateMorningEveningSchedule = onActivateMorningEveningSchedule
             )
         }
 
@@ -183,7 +182,7 @@ fun ScannerScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
-                    placeholder = { Text("Search NSE, BSE, MCX, Crypto symbols…", color = TextMuted) },
+                    placeholder = { Text("Search NSE, BSE, MCX symbols…", color = TextMuted) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Search,
@@ -299,7 +298,7 @@ fun ScannerScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = "Clear the search query or switch exchange filters to view NSE, BSE, MCX & Crypto feeds.",
+                            text = "Clear the search query or switch exchange filters to view NSE, BSE & MCX feeds.",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
@@ -332,7 +331,9 @@ private fun AutoTradingControlCard(
     eligibleCount: Int,
     totalCount: Int,
     onToggle: (Boolean) -> Unit,
-    onToggleAllowSellAutoTrade: (Boolean) -> Unit = {}
+    onToggleAllowSellAutoTrade: (Boolean) -> Unit = {},
+    dailyProfitFloorInr: Double? = null,
+    onActivateMorningEveningSchedule: (Boolean) -> Unit = {}
 ) {
     val borderColor by animateColorAsState(
         targetValue = when {
@@ -543,6 +544,39 @@ private fun AutoTradingControlCard(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
+                val isMorningEveningOn = riskConfig.enforceMarketHours &&
+                    riskConfig.autoStartAtMarketOpen &&
+                    !riskConfig.mcxExtendedHoursEnabled
+                FilterChip(
+                    selected = isMorningEveningOn,
+                    onClick = { onActivateMorningEveningSchedule(!isMorningEveningOn) },
+                    label = {
+                        Text(
+                            text = if (isMorningEveningOn) "09:15–15:15 IST Auto: ON" else "09:15–15:15 Auto: OFF (24/7 Demo)",
+                            style = MonoTabularStyle.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = EmeraldContainer,
+                        selectedLabelColor = EmeraldBright,
+                        containerColor = TerminalSurface,
+                        labelColor = TextSecondary
+                    ),
+                    modifier = Modifier.testTag("scanner_morning_evening_chip")
+                )
+                if (dailyProfitFloorInr != null) {
+                    Surface(
+                        color = EmeraldContainer.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = "Profit Shield ≥+₹${dailyProfitFloorInr.toInt()}",
+                            style = MonoTabularStyle.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                            color = EmeraldBright,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
             }
 
             AnimatedVisibility(
@@ -686,7 +720,7 @@ private fun GeminiScreenerBannerCard(
                 }
                 is GeminiScreenerUiState.Loading -> {
                     Text(
-                        text = "Scanning live NSE, BSE, MCX & Crypto snapshots locally…",
+                        text = "Scanning live NSE, BSE & MCX snapshots locally…",
                         style = MaterialTheme.typography.bodySmall,
                         color = CyanTerminal
                     )
@@ -731,20 +765,8 @@ private fun WatchlistInstrumentCard(
 ) {
     val isPositive = instrument.changePct >= 0.0
     val priceColor = if (isPositive) EmeraldProfit else CrimsonLoss
-    val affordableQty = if (instrument.exchange == Exchange.CRYPTO) {
-        if (perTradeBudget >= 50.0) {
-            Math.round((perTradeBudget / instrument.ltp) * 1_000_000.0) / 1_000_000.0
-        } else {
-            0.0
-        }
-    } else {
-        floor(perTradeBudget / instrument.ltp)
-    }
-    val isAffordable = if (instrument.exchange == Exchange.CRYPTO) {
-        perTradeBudget >= 50.0 && affordableQty > 0.0
-    } else {
-        affordableQty >= 1.0
-    }
+    val affordableQty = floor(perTradeBudget / instrument.ltp)
+    val isAffordable = affordableQty >= 1.0
 
     val (signalBg, signalFg) = when (instrument.aiSignal) {
         AiTrendSignal.STRONG_BUY -> EmeraldContainer to EmeraldBright
@@ -795,7 +817,6 @@ private fun WatchlistInstrumentCard(
                                 Exchange.NSE -> CyanContainer.copy(alpha = 0.6f)
                                 Exchange.BSE -> TerminalSurfaceHighlight
                                 Exchange.MCX -> AmberContainer.copy(alpha = 0.65f)
-                                Exchange.CRYPTO -> EmeraldContainer.copy(alpha = 0.7f)
                             },
                             shape = RoundedCornerShape(5.dp)
                         ) {
@@ -806,7 +827,6 @@ private fun WatchlistInstrumentCard(
                                     Exchange.NSE -> CyanTerminal
                                     Exchange.BSE -> TextSecondary
                                     Exchange.MCX -> AmberAlert
-                                    Exchange.CRYPTO -> EmeraldBright
                                 },
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                             )

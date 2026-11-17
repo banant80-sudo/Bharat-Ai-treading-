@@ -174,8 +174,7 @@ class AngelOneBrokerClient {
         }
 
     /**
-     * Places an intraday MARKET entry order via Angel One SmartAPI (/placeOrder) for NSE/BSE/MCX,
-     * or routes CRYPTO orders through the 24/7 Paper Sandbox / optional Crypto Exchange API adapter.
+     * Places an intraday MARKET entry order via Angel One SmartAPI (/placeOrder) for NSE/BSE/MCX.
      */
     suspend fun placeOrder(
         session: SmartApiSession?,
@@ -186,10 +185,6 @@ class AngelOneBrokerClient {
         quantity: Double,
         isPaperMode: Boolean
     ): Result<String> = withContext(Dispatchers.IO) {
-        if (exchange == Exchange.CRYPTO) {
-            return@withContext placeCryptoOrderPlaceholder(tradingSymbol, side, quantity)
-        }
-
         if (isPaperMode || session == null || session.isPaperSession) {
             val demoOrderId = "PPR-${(System.currentTimeMillis() % 1000000L).toString().padStart(6, '0')}"
             return@withContext Result.success(demoOrderId)
@@ -220,22 +215,6 @@ class AngelOneBrokerClient {
         } catch (e: Exception) {
             Result.failure(e)
         }
-    }
-
-    /**
-     * Modular placeholder for Crypto Exchange REST integration (e.g. CoinDCX / Binance / Delta).
-     * Runs 24/7 in Paper Demo mode for BTC, ETH, SOL, XRP, and BNB fractional orders.
-     */
-    private fun placeCryptoOrderPlaceholder(
-        tradingSymbol: String,
-        side: TradeSide,
-        quantity: Double
-    ): Result<String> {
-        if (quantity <= 0.0) {
-            return Result.failure(IllegalArgumentException("Invalid fractional quantity for $tradingSymbol"))
-        }
-        val cryptoOrderId = "CRP-${side.name.take(1)}-${(System.currentTimeMillis() % 1000000L).toString().padStart(6, '0')}"
-        return Result.success(cryptoOrderId)
     }
 
     /**

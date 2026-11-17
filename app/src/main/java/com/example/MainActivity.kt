@@ -323,6 +323,7 @@ fun QuantPulseTerminalApp(
                                     onBookAllCombinedProfitNow = viewModel::bookAllCombinedProfitNow,
                                     onSquareOffPosition = viewModel::squareOffPosition,
                                     onSquareOffAll = viewModel::squareOffAll,
+                                    onWithdrawProfit = viewModel::withdrawNetProfitOnly,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -346,13 +347,17 @@ fun QuantPulseTerminalApp(
                                     onBookAllCombinedProfitNow = viewModel::bookAllCombinedProfitNow,
                                     onSquareOffPosition = viewModel::squareOffPosition,
                                     onSquareOffAll = viewModel::squareOffAll,
+                                    onWithdrawProfit = viewModel::withdrawNetProfitOnly,
                                     modifier = Modifier.fillMaxSize()
                                 )
                                 TerminalTab.RISK -> RiskConfigScreen(
                                     riskConfig = uiState.riskConfig,
                                     instruments = uiState.instruments,
                                     marketWindowStatus = uiState.marketWindowStatus,
+                                    lastSavedAt = uiState.lastRiskSavedAt,
                                     onUpdateRiskConfig = viewModel::updateRiskConfig,
+                                    onSaveRiskConfig = viewModel::saveRiskConfigWithFeedback,
+                                    onActivateMorningEveningSchedule = viewModel::activateMorningEveningSchedule,
                                     onResetPaperAccount = viewModel::resetPaperAccount,
                                     modifier = Modifier.fillMaxSize()
                                 )
@@ -363,6 +368,7 @@ fun QuantPulseTerminalApp(
                                     performanceDiagnostic = uiState.performanceDiagnostic,
                                     onRunAiOptimization = viewModel::runAiPerformanceOptimization,
                                     onToggleApiQuotaLimit = viewModel::toggleApiQuotaLimit,
+                                    onWithdrawProfit = viewModel::withdrawNetProfitOnly,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
@@ -378,12 +384,16 @@ fun QuantPulseTerminalApp(
             credentials = uiState.credentials,
             connectionState = uiState.connectionState,
             isPaperMode = uiState.riskConfig.isPaperMode,
+            availableCashInr = uiState.accountSummary.availableCash,
+            hasSavedBrokerLink = uiState.hasSavedBrokerLink,
             onCredentialsChange = viewModel::updateCredentials,
             onPaperModeToggle = { paperEnabled ->
                 viewModel.updateRiskConfig(uiState.riskConfig.copy(isPaperMode = paperEnabled))
             },
             onConnect = viewModel::connectBroker,
             onDisconnect = viewModel::disconnectBroker,
+            onSyncFunds = viewModel::syncBrokerFunds,
+            onClearSavedLink = viewModel::clearSavedBrokerLink,
             onDismiss = { viewModel.setBrokerSheetOpen(false) }
         )
     }
@@ -419,6 +429,7 @@ private fun ScannerContent(
         onSearchQueryChange = viewModel::updateSearchQuery,
         onToggleAutoTrading = viewModel::toggleAutoTrading,
         onToggleAllowSellAutoTrade = viewModel::toggleAllowSellAutoTrade,
+        onActivateMorningEveningSchedule = viewModel::activateMorningEveningSchedule,
         onManualOrder = viewModel::placeManualOrder,
         modifier = modifier
     )

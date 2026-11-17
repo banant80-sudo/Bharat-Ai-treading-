@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ReceiptLong
@@ -105,6 +106,7 @@ fun LogsAnalyticsScreen(
     performanceDiagnostic: GeminiPerformanceDiagnostic = GeminiPerformanceDiagnostic(),
     onRunAiOptimization: () -> Unit = {},
     onToggleApiQuotaLimit: (Boolean) -> Unit = {},
+    onWithdrawProfit: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedTxFilter by remember { mutableStateOf(TransactionFilter.ALL_TRADES) }
@@ -238,6 +240,53 @@ fun LogsAnalyticsScreen(
                             modifier = Modifier.weight(1f)
                         )
                     }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(TerminalSurfaceElevated)
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Withdrawable Profit: ${Formatters.formatInr(accountSummary.withdrawableProfitInr)}",
+                                style = MonoTabularStyle.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                                color = if (accountSummary.withdrawableProfitInr > 0.0) EmeraldBright else TextSecondary
+                            )
+                            Text(
+                                text = "Withdrawn: ${Formatters.formatInr(accountSummary.withdrawnProfitInr)} • Base ₹5,00,000 safe",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextMuted
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = onWithdrawProfit,
+                            enabled = accountSummary.withdrawableProfitInr > 0.0,
+                            border = BorderStroke(
+                                1.dp,
+                                if (accountSummary.withdrawableProfitInr > 0.0) EmeraldBright else TerminalBorder
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = EmeraldBright,
+                                disabledContentColor = TextMuted
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("logs_withdraw_profit_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountBalanceWallet,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.size(5.dp))
+                            Text("Withdraw Profit", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
         }
@@ -273,7 +322,7 @@ fun LogsAnalyticsScreen(
                 OutlinedTextField(
                     value = txSearchQuery,
                     onValueChange = { txSearchQuery = it },
-                    placeholder = { Text("Search transactions (RELIANCE, BTC, MCX…)", color = TextMuted) },
+                    placeholder = { Text("Search transactions (RELIANCE, INFY, MCX…)", color = TextMuted) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Search,

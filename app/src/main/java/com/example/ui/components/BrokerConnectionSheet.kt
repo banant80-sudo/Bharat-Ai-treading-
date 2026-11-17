@@ -18,11 +18,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -42,6 +45,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -87,10 +91,14 @@ fun BrokerConnectionSheet(
     credentials: BrokerCredentials,
     connectionState: BrokerConnectionState,
     isPaperMode: Boolean,
+    availableCashInr: Double = 0.0,
+    hasSavedBrokerLink: Boolean = false,
     onCredentialsChange: (BrokerCredentials) -> Unit,
     onPaperModeToggle: (Boolean) -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
+    onSyncFunds: () -> Unit = {},
+    onClearSavedLink: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -212,21 +220,63 @@ fun BrokerConnectionSheet(
                 }
             }
 
-            // Market Routing Note (Angel One vs 24/7 Crypto)
+            // One-Time Link & Angel One Fund Sync Guide
             Surface(
-                color = AmberContainer.copy(alpha = 0.4f),
+                color = if (hasSavedBrokerLink) EmeraldContainer.copy(alpha = 0.35f) else AmberContainer.copy(alpha = 0.4f),
                 shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, AmberAlert.copy(alpha = 0.45f)),
+                border = BorderStroke(
+                    1.dp,
+                    if (hasSavedBrokerLink) EmeraldProfit.copy(alpha = 0.55f) else AmberAlert.copy(alpha = 0.45f)
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("broker_routing_note")
             ) {
-                Text(
-                    text = "Execution Routing: Angel One SmartAPI executes NSE, BSE & MCX trades. The 24/7 CRYPTO feed (BTC, ETH, SOL, XRP, BNB) operates in Paper Demo mode or via an optional Crypto Exchange API integration.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextPrimary,
-                    modifier = Modifier.padding(10.dp)
-                )
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = if (hasSavedBrokerLink) Icons.Default.CheckCircle else Icons.Default.AccountBalanceWallet,
+                                contentDescription = null,
+                                tint = if (hasSavedBrokerLink) EmeraldProfit else AmberAlert,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = if (hasSavedBrokerLink) {
+                                    "One-Time Link Saved • Auto-ReLogin Daily"
+                                } else {
+                                    "One-Time Angel One Link & Fund Setup"
+                                },
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (hasSavedBrokerLink) EmeraldProfit else AmberAlert
+                            )
+                        }
+                        if (hasSavedBrokerLink) {
+                            TextButton(
+                                onClick = onClearSavedLink,
+                                modifier = Modifier.testTag("clear_saved_broker_button")
+                            ) {
+                                Text("Unlink", color = CrimsonLoss, style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                    Text(
+                        text = "• Ek baar API Key, Client ID, MPIN & TOTP Secret save karein — app roz khud TOTP generate karke login kar lega (bar-bar link nahi karna).\n• Live Mode ON karte hi /getRMS aapka Angel One fund (${com.example.util.Formatters.formatInr(availableCashInr)}) sync karke Intraday orders place karega.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextPrimary
+                    )
+                }
             }
 
             // Paper Trading (Demo Mode) Toggle
@@ -440,13 +490,40 @@ fun BrokerConnectionSheet(
                     } else {
                         Text(
                             text = when {
-                                isConnected -> "Reconnect Session"
+                                isConnected -> "Reconnect & Save Link"
                                 isPaperMode -> "Connect Paper Sandbox"
-                                else -> "Connect SmartAPI Live"
+                                else -> "Link One-Time & Connect Live"
                             },
                             fontWeight = FontWeight.Bold
                         )
                     }
+                }
+            }
+
+            if (isConnected) {
+                OutlinedButton(
+                    onClick = onSyncFunds,
+                    border = BorderStroke(1.dp, CyanTerminal.copy(alpha = 0.65f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = CyanTerminal),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("sync_angel_one_funds_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.size(6.dp))
+                    Text(
+                        text = if (isPaperMode) {
+                            "Refresh Sandbox Balance (${com.example.util.Formatters.formatInr(availableCashInr)})"
+                        } else {
+                            "Sync Live Angel One Fund (${com.example.util.Formatters.formatInr(availableCashInr)})"
+                        },
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 

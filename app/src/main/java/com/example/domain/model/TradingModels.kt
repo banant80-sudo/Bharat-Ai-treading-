@@ -6,8 +6,7 @@ import kotlin.math.abs
 enum class Exchange(val label: String) {
     NSE("NSE"),
     BSE("BSE"),
-    MCX("MCX"),
-    CRYPTO("CRYPTO")
+    MCX("MCX")
 }
 
 enum class AiTrendSignal(val label: String) {
@@ -147,7 +146,7 @@ data class ActivePosition(
 ) {
     companion object {
         const val BREAK_EVEN_NET_BUFFER_INR = 3.0
-        const val BREAK_EVEN_ARM_TRIGGER_INR = 5.0
+        const val BREAK_EVEN_ARM_TRIGGER_INR = 8.5
         const val ZERO_WAIT_SINGLE_TRADE_TARGET_INR = 15.0
         const val ZERO_LOSS_SHIELD_TRIGGER_INR = 12.0
         const val ZERO_LOSS_SHIELD_FLOOR_INR = 5.0
@@ -166,7 +165,7 @@ data class ActivePosition(
             TradeSide.SHORT -> (entryPrice - currentPrice) * quantity
         }
 
-    /** Net P&L after estimated brokerage, STT/CTT/Crypto fee, exchange fees & GST */
+    /** Net P&L after estimated brokerage, STT/CTT, exchange fees & GST */
     val netUnrealizedPnl: Double get() = grossUnrealizedPnl - estimatedChargesInr
 
     val unrealizedPnlPct: Double
@@ -355,7 +354,13 @@ data class BrokerCredentials(
     val clientId: String = "",
     val mpin: String = "",
     val totpSecret: String = ""
-)
+) {
+    val isCompleteForLive: Boolean
+        get() = apiKey.isNotBlank() &&
+            clientId.isNotBlank() &&
+            mpin.isNotBlank() &&
+            totpSecret.isNotBlank()
+}
 
 sealed class BrokerConnectionState {
     data object Disconnected : BrokerConnectionState()
@@ -433,6 +438,9 @@ data class AccountSummary(
     val basketBookedProfitInr: Double = 0.0,
     val grossProfit: Double = 0.0,
     val grossLoss: Double = 0.0,
+    val withdrawnProfitInr: Double = 0.0,
+    val withdrawableProfitInr: Double = 0.0,
+    val dailyProfitFloorInr: Double? = null,
     val equityCurve: List<Double> = listOf(500000.0)
 ) {
     val winRatePct: Double

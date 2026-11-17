@@ -18,11 +18,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -38,10 +41,12 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlin.math.abs
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -84,30 +89,73 @@ fun RiskConfigScreen(
     riskConfig: RiskConfig,
     instruments: List<MarketInstrument>,
     marketWindowStatus: MarketWindowStatus,
+    lastSavedAt: String? = null,
     onUpdateRiskConfig: (RiskConfig) -> Unit,
+    onSaveRiskConfig: (RiskConfig) -> Unit = onUpdateRiskConfig,
+    onActivateMorningEveningSchedule: (Boolean) -> Unit = {},
     onResetPaperAccount: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var smallAmtText by remember(riskConfig.smallAmountPerTrade) {
-        mutableStateOf(riskConfig.smallAmountPerTrade.toInt().toString())
+    var smallAmtText by remember { mutableStateOf(riskConfig.smallAmountPerTrade.toInt().toString()) }
+    var tpInrText by remember { mutableStateOf(riskConfig.targetProfitInr.toInt().toString()) }
+    var tpPctText by remember { mutableStateOf(String.format(Locale.US, "%.2f", riskConfig.targetProfitPct)) }
+    var slPctText by remember { mutableStateOf(String.format(Locale.US, "%.2f", riskConfig.stopLossPct)) }
+    var slInrText by remember { mutableStateOf(riskConfig.stopLossInr.toInt().toString()) }
+    var circuitInrText by remember { mutableStateOf(riskConfig.dailyMaxLossLimitInr.toInt().toString()) }
+    var capitalText by remember { mutableStateOf(riskConfig.maxCapitalPerTrade.toInt().toString()) }
+
+    LaunchedEffect(riskConfig) {
+        if (abs((smallAmtText.toDoubleOrNull() ?: -1.0) - riskConfig.smallAmountPerTrade) > 0.5) {
+            smallAmtText = riskConfig.smallAmountPerTrade.toInt().toString()
+        }
+        if (abs((tpInrText.toDoubleOrNull() ?: -1.0) - riskConfig.targetProfitInr) > 0.5) {
+            tpInrText = riskConfig.targetProfitInr.toInt().toString()
+        }
+        if (abs((tpPctText.toDoubleOrNull() ?: -1.0) - riskConfig.targetProfitPct) > 0.009) {
+            tpPctText = String.format(Locale.US, "%.2f", riskConfig.targetProfitPct)
+        }
+        if (abs((slPctText.toDoubleOrNull() ?: -1.0) - riskConfig.stopLossPct) > 0.009) {
+            slPctText = String.format(Locale.US, "%.2f", riskConfig.stopLossPct)
+        }
+        if (abs((slInrText.toDoubleOrNull() ?: -1.0) - riskConfig.stopLossInr) > 0.5) {
+            slInrText = riskConfig.stopLossInr.toInt().toString()
+        }
+        if (abs((circuitInrText.toDoubleOrNull() ?: -1.0) - riskConfig.dailyMaxLossLimitInr) > 0.5) {
+            circuitInrText = riskConfig.dailyMaxLossLimitInr.toInt().toString()
+        }
+        if (abs((capitalText.toDoubleOrNull() ?: -1.0) - riskConfig.maxCapitalPerTrade) > 0.5) {
+            capitalText = riskConfig.maxCapitalPerTrade.toInt().toString()
+        }
     }
-    var tpInrText by remember(riskConfig.targetProfitInr) {
-        mutableStateOf(riskConfig.targetProfitInr.toInt().toString())
-    }
-    var tpPctText by remember(riskConfig.targetProfitPct) {
-        mutableStateOf(String.format(Locale.US, "%.2f", riskConfig.targetProfitPct))
-    }
-    var slPctText by remember(riskConfig.stopLossPct) {
-        mutableStateOf(String.format(Locale.US, "%.2f", riskConfig.stopLossPct))
-    }
-    var slInrText by remember(riskConfig.stopLossInr) {
-        mutableStateOf(riskConfig.stopLossInr.toInt().toString())
-    }
-    var circuitInrText by remember(riskConfig.dailyMaxLossLimitInr) {
-        mutableStateOf(riskConfig.dailyMaxLossLimitInr.toInt().toString())
-    }
-    var capitalText by remember(riskConfig.maxCapitalPerTrade) {
-        mutableStateOf(riskConfig.maxCapitalPerTrade.toInt().toString())
+
+    fun commitAndSaveAllRules() {
+        val nextSmallAmt = (smallAmtText.toDoubleOrNull() ?: riskConfig.smallAmountPerTrade).coerceIn(50.0, 50000.0)
+        val nextCap = (capitalText.toDoubleOrNull() ?: riskConfig.maxCapitalPerTrade).coerceIn(5000.0, 500000.0)
+        val nextTpInr = (tpInrText.toDoubleOrNull() ?: riskConfig.targetProfitInr).coerceIn(30.0, 1000.0)
+        val nextTpPct = (tpPctText.toDoubleOrNull() ?: riskConfig.targetProfitPct).coerceIn(0.25, 15.0)
+        val nextSlPct = (slPctText.toDoubleOrNull() ?: riskConfig.stopLossPct).coerceIn(0.20, 15.0)
+        val nextSlInr = (slInrText.toDoubleOrNull() ?: riskConfig.stopLossInr).coerceIn(25.0, 15000.0)
+        val nextCircuitInr = (circuitInrText.toDoubleOrNull() ?: riskConfig.dailyMaxLossLimitInr).coerceIn(300.0, 50000.0)
+
+        smallAmtText = nextSmallAmt.toInt().toString()
+        capitalText = nextCap.toInt().toString()
+        tpInrText = nextTpInr.toInt().toString()
+        tpPctText = String.format(Locale.US, "%.2f", nextTpPct)
+        slPctText = String.format(Locale.US, "%.2f", nextSlPct)
+        slInrText = nextSlInr.toInt().toString()
+        circuitInrText = nextCircuitInr.toInt().toString()
+
+        onSaveRiskConfig(
+            riskConfig.copy(
+                smallAmountPerTrade = nextSmallAmt,
+                maxCapitalPerTrade = nextCap,
+                targetProfitInr = nextTpInr,
+                targetProfitPct = nextTpPct,
+                stopLossPct = nextSlPct,
+                stopLossInr = nextSlInr,
+                dailyMaxLossLimitInr = nextCircuitInr
+            )
+        )
     }
 
     val fieldColors = OutlinedTextFieldDefaults.colors(
@@ -121,11 +169,7 @@ fun RiskConfigScreen(
 
     val effectiveBudget = riskConfig.effectiveCapitalPerTrade
     val eligibleInstrumentsCount = instruments.count {
-        if (it.exchange == Exchange.CRYPTO) {
-            effectiveBudget >= 50.0
-        } else {
-            floor(effectiveBudget / it.ltp) >= 1.0
-        }
+        floor(effectiveBudget / it.ltp) >= 1.0
     }
     val estimatedCharges = AngelOneChargeCalculator.estimateRoundTripCharges(effectiveBudget, Exchange.NSE)
 
@@ -134,6 +178,65 @@ fun RiskConfigScreen(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        item(key = "risk_save_status_banner") {
+            Surface(
+                color = TerminalSurfaceElevated,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, EmeraldProfit.copy(alpha = 0.6f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Settings synced",
+                            tint = EmeraldBright,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Column {
+                            Text(
+                                text = if (lastSavedAt != null) "Saved ✓ ($lastSavedAt)" else "Risk Rules Auto-Save Active",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = EmeraldBright,
+                                modifier = Modifier.testTag("risk_saved_status_text")
+                            )
+                            Text(
+                                text = "Toggles & presets save instantly. Tap Save to commit typed inputs.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = { commitAndSaveAllRules() },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = EmeraldProfit,
+                            contentColor = TerminalVoid
+                        ),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .height(48.dp)
+                            .testTag("save_risk_rules_top_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Save,
+                            contentDescription = "Save rules",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.size(5.dp))
+                        Text("Save", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
         // 1. Small-Amount Auto-Split Mode (Invest Across All Affordable Stocks)
         item(key = "small_amount_split_card") {
             Surface(
@@ -172,7 +275,7 @@ fun RiskConfigScreen(
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = "Divides available margin into ₹50–₹50,000 allocations across NSE, BSE, MCX & fractional Crypto.",
+                                    text = "Divides available margin into ₹50–₹50,000 allocations across affordable NSE, BSE & MCX equities and commodities.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = TextSecondary
                                 )
@@ -260,7 +363,7 @@ fun RiskConfigScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "$eligibleInstrumentsCount / ${instruments.size} scanner instruments eligible at ${Formatters.formatInr(effectiveBudget)}/trade (Blue-chips & commodities qualify at ≥1 share/unit; Crypto supports fractional units from ₹50).",
+                                text = "$eligibleInstrumentsCount / ${instruments.size} scanner instruments eligible at ${Formatters.formatInr(effectiveBudget)}/trade (Equities and commodities qualify at ≥1 share/lot).",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = CyanTerminal,
                                 modifier = Modifier.padding(10.dp)
@@ -1063,7 +1166,7 @@ fun RiskConfigScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "Risk Disclaimer: Strict capital-protection filters minimize downside risk, but no algorithm can guarantee zero loss in live financial or crypto markets due to slippage, volatility, and market gaps.",
+                                text = "Risk Disclaimer: Strict capital-protection filters minimize downside risk, but no algorithm can guarantee zero loss in live financial markets due to slippage, volatility, and market gaps.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextPrimary
                             )
@@ -1113,6 +1216,41 @@ fun RiskConfigScreen(
                                 )
                             }
                         }
+                    }
+
+                    val isMorningEveningPreset = riskConfig.enforceMarketHours &&
+                        riskConfig.autoStartAtMarketOpen &&
+                        !riskConfig.mcxExtendedHoursEnabled
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = isMorningEveningPreset,
+                            onClick = { onActivateMorningEveningSchedule(true) },
+                            label = { Text("Morning–Evening (09:15–15:15 IST)") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = EmeraldContainer,
+                                selectedLabelColor = EmeraldBright,
+                                containerColor = TerminalSurfaceElevated,
+                                labelColor = TextSecondary
+                            ),
+                            modifier = Modifier.testTag("preset_morning_evening_schedule")
+                        )
+                        FilterChip(
+                            selected = !riskConfig.enforceMarketHours,
+                            onClick = { onActivateMorningEveningSchedule(false) },
+                            label = { Text("24/7 Demo Mode") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = CyanContainer,
+                                selectedLabelColor = CyanTerminal,
+                                containerColor = TerminalSurfaceElevated,
+                                labelColor = TextSecondary
+                            ),
+                            modifier = Modifier.testTag("preset_24_7_demo_mode")
+                        )
                     }
 
                     SchedulerToggleRow(
@@ -1300,6 +1438,32 @@ fun RiskConfigScreen(
                         }
                     }
                 }
+            }
+        }
+
+        item(key = "save_all_risk_rules_bottom") {
+            Button(
+                onClick = { commitAndSaveAllRules() },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = EmeraldProfit,
+                    contentColor = TerminalVoid
+                ),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .testTag("save_risk_rules_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Save,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.size(8.dp))
+                Text(
+                    text = if (lastSavedAt != null) "Save & Apply Risk Rules (Last: $lastSavedAt)" else "Save & Apply All Risk Rules",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                )
             }
         }
 
